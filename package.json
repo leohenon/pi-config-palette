@@ -1,6 +1,6 @@
 {
   "name": "pi-config-palette",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "files": [
     "bin/pi-config-palette.mjs",
@@ -13,9 +13,17 @@
   ],
   "type": "module",
   "description": "A keyboard-first palette for Pi skills, extensions, and tools.",
-  "keywords": ["pi-package"],
-  "pi": { "extensions": ["./index.ts"] },
-  "bin": { "pi-config-palette": "./bin/pi-config-palette.mjs" },
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "bin": {
+    "pi-config-palette": "./bin/pi-config-palette.mjs"
+  },
   "scripts": {
     "check": "tsc --noEmit && node --check bin/pi-config-palette.mjs",
     "test": "tsx --test test/*.test.ts",
