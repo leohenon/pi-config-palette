@@ -1,0 +1,39 @@
+{
+  "name": "pi-config-palette",
+  "version": "0.1.0",
+  "license": "MIT",
+  "files": [
+    "bin/pi-config-palette.mjs",
+    "index.ts",
+    "items.ts",
+    "palette.ts",
+    "resources.ts",
+    "session-tools.ts",
+    "tools.ts"
+  ],
+  "type": "module",
+  "description": "A keyboard-first palette for Pi skills, extensions, and tools.",
+  "keywords": ["pi-package"],
+  "pi": { "extensions": ["./index.ts"] },
+  "bin": { "pi-config-palette": "./bin/pi-config-palette.mjs" },
+  "scripts": {
+    "check": "tsc --noEmit && node --check bin/pi-config-palette.mjs",
+    "test": "tsx --test test/*.test.ts",
+    "prepublishOnly": "npm run check && npm test"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=1.5.2",
+    "@earendil-works/pi-tui": ">=1.5.2"
+  },
+  "dependencies": {
+    "proper-lockfile": "^4.1.2"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.5.2",
+    "@earendil-works/pi-tui": "1.5.2",
+    "@types/node": "^22.19.19",
+    "@types/proper-lockfile": "^4.1.4",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.3"
+  }
+}
