@@ -4,7 +4,7 @@ Yet another config palette for Pi.
 
 Toggle skills, extensions, and tools in one place. Skills and extensions use their existing global/project scope, tools get Global and Session modes.
 
-![screenshot](assets/screenshot.png)
+![screenshot](https://raw.githubusercontent.com/leohenon/pi-config-palette/main/assets/screenshot.png)
 
 ## Install
 
