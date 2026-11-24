@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
-import * as fs from "node:fs";
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { test, type TestContext } from "node:test";
+import { stripVTControlCharacters } from "node:util";
 import { SessionManager, SettingsManager, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext, type ToolInfo } from "@earendil-works/pi-coding-agent";
 import registerPalette from "../index.ts";
 import { ConfigPaletteComponent, type PaletteResult } from "../palette.ts";
@@ -115,11 +117,15 @@ function toolHost() {
 }
 
 type Factory = Parameters<ExtensionCommandContext["ui"]["custom"]>[0];
-async function usePicker(factory: Factory, keys: string[], inspect?: (lines: string[]) => void): Promise<unknown> {
+async function openPicker(factory: Factory, requestRender = () => {}) {
 	let finish!: (result: unknown) => void;
 	const closed = new Promise((resolve) => { finish = resolve; });
-	const tui = { requestRender() {}, terminal: { rows: 24 } } as Parameters<Factory>[0];
+	const tui = { requestRender, terminal: { rows: 24 } } as Parameters<Factory>[0];
 	const component = await factory(tui, theme, {} as Parameters<Factory>[2], finish);
+	return { component, closed };
+}
+async function usePicker(factory: Factory, keys: string[], inspect?: (lines: string[]) => void): Promise<unknown> {
+	const { component, closed } = await openPicker(factory);
 	inspect?.(component.render(96));
 	for (const key of keys) component.handleInput!(key);
 	return closed;
@@ -499,8 +505,7 @@ test("skill and extension toggles write real settings before the palette closes"
 	const ui = new ConfigPaletteComponent(await loadResources(f.ctx), theme, {
 		requestRender() {}, rows: () => 24,
 		saveToggle: (item) => {
-			assert.notEqual(item.kind, "tool");
-			if (item.kind === "tool") throw new Error("unexpected tool in resource test");
+			if (item.kind !== "skill" && item.kind !== "extension") assert.fail("expected a resource");
 			saving = applyResourceChanges(f.ctx, [item]);
 			return saving;
 		},
@@ -556,6 +561,123 @@ test("inline command reloads after Escape waits for an in-flight immediate save"
 	await handler("", ctx);
 	assert.equal(reloads, 1);
 	assert.deepEqual(errors, []);
+});
+
+test("multiple MCP edits autosave, then reload once in Pi or just exit in the shell", { timeout: 5000 }, async (t) => {
+	for (const standalone of [false, true]) {
+		await t.test(standalone ? "standalone" : "embedded", async (t) => {
+			const f = fixture(t);
+			const file = path.join(f.agentDir, "mcp.json");
+			write(file, { mcpServers: { a: { command: "a" }, b: { command: "b" } } });
+			const calls: string[] = [];
+			const ctx = {
+				...f.ctx, mode: "tui",
+				waitForIdle: () => { calls.push("idle"); }, reload: () => { calls.push("reload"); }, shutdown: () => { calls.push("exit"); },
+				ui: {
+					setFooter() {}, notify: (message: string) => assert.fail(message),
+					custom: async (factory: Factory) => {
+						let rendered = () => {};
+						const { component, closed } = await openPicker(factory, () => rendered());
+						component.handleInput!("4");
+						component.handleInput!(" ");
+						await new Promise<void>((resolve) => { rendered = resolve; });
+						assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).mcpServers.a.enabled, false);
+						assert.deepEqual(calls, []);
+						component.handleInput!("k");
+						component.handleInput!("\r");
+						component.handleInput!("\x03");
+						return closed;
+					},
+				},
+			} as unknown as ExtensionCommandContext;
+			await paletteCommand(standalone)("", ctx);
+			assert.deepEqual(calls, standalone ? ["exit"] : ["idle", "reload"]);
+			assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).mcpServers.b.enabled, false);
+		});
+	}
+});
+
+test("an MCP flush failure keeps the toggle and reloads only if the saved bytes match", { timeout: 5000 }, async (t) => {
+	for (const matches of [true, false]) {
+		await t.test(matches ? "matches the write" : "file changed during the flush", async (t) => {
+			const f = fixture(t);
+			const file = path.join(f.agentDir, "mcp.json");
+			write(file, { mcpServers: { docs: { command: "docs" } } });
+			const { dev, ino } = fs.statSync(file, { bigint: true });
+			const fsync = fs.fsyncSync;
+			const patched = t.mock.method(fs, "fsyncSync", (fd: number) => {
+				const stat = fs.fstatSync(fd, { bigint: true });
+				if (stat.dev !== dev || stat.ino !== ino) return fsync(fd);
+				if (!matches) fs.appendFileSync(file, "\n");
+				throw new Error("simulated flush failure");
+			});
+			syncBuiltinESMExports();
+			t.after(() => { patched.mock.restore(); syncBuiltinESMExports(); });
+
+			let reloads = 0;
+			const notifications: Array<{ message: string; level?: string }> = [];
+			const ctx = {
+				...f.ctx, mode: "tui", waitForIdle() {}, reload: () => { reloads++; },
+				ui: {
+					notify: (message: string, level?: string) => { notifications.push({ message, level }); },
+					custom: async (factory: Factory) => {
+						let rendered = () => {};
+						const { component, closed } = await openPicker(factory, () => rendered());
+						component.handleInput!("4");
+						component.handleInput!(" ");
+						await new Promise<void>((resolve) => { rendered = resolve; });
+						const lines = stripVTControlCharacters(component.render(96).join("\n"));
+						assert.match(lines, matches ? /\[OFF\] docs/ : /\[ ON\] docs/);
+						if (matches) assert.doesNotMatch(lines, /Save failed/);
+						else assert.match(lines, /Save failed/);
+						component.handleInput!("\x1b");
+						return closed;
+					},
+				},
+			} as unknown as ExtensionCommandContext;
+			await paletteCommand()("", ctx);
+			assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).mcpServers.docs.enabled, false);
+			assert.equal(reloads, matches ? 1 : 0);
+			assert.deepEqual(notifications.map(({ level }) => level), [matches ? "warning" : "error"]);
+			assert.match(notifications[0].message, matches ? /may not survive a crash/ : /simulated flush failure.*Check the file/);
+		});
+	}
+});
+
+test("MCP errors neither reload nor block the other tabs", { timeout: 5000 }, async (t) => {
+	const f = fixture(t);
+	const file = path.join(f.agentDir, "mcp.json");
+	write(file, { mcpServers: { docs: { command: "docs" } } });
+	skill(path.join(f.agentDir, "skills/working/SKILL.md"), "working");
+	const errors: string[] = [];
+	for (const alreadyInvalid of [false, true]) {
+		const ctx = {
+			...f.ctx, mode: "tui", waitForIdle: () => assert.fail("no successful edits"), reload: () => assert.fail("no successful edits"),
+			ui: {
+				notify: (message: string) => { errors.push(message); },
+				custom: async (factory: Factory) => {
+					let rendered = () => {};
+					const { component, closed } = await openPicker(factory, () => rendered());
+					assert.match(component.render(96).join("\n"), /working/);
+					component.handleInput!("4");
+					if (alreadyInvalid) {
+						assert.match(component.render(96).join("\n"), /MCP configuration unavailable/);
+					} else {
+						write(file, "SECRET broken JSON");
+						component.handleInput!(" ");
+						await new Promise<void>((resolve) => { rendered = resolve; });
+						assert.match(component.render(96).join("\n"), /Save failed/);
+					}
+					component.handleInput!("\x1b");
+					return closed;
+				},
+			},
+		} as unknown as ExtensionCommandContext;
+		await paletteCommand()("", ctx);
+	}
+	assert.equal(errors.length, 2);
+	assert.doesNotMatch(errors.join(" "), /SECRET/);
+	assert.equal(fs.readFileSync(file, "utf8"), "SECRET broken JSON");
 });
 
 test("tool-only edits apply live and persist without reloading Pi", { timeout: 5000 }, async (t) => {

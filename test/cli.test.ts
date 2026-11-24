@@ -54,7 +54,7 @@ process.exit(7);
 	assert.equal(result.status, 7);
 	const recorded = JSON.parse(readFileSync(capture, "utf8"));
 	assert.deepEqual(recorded.args, [
-		"--no-session", "--no-extensions", "--offline", "--no-tools",
+		"--no-session", "--no-extensions", "--no-mcp", "--offline", "--no-tools",
 		"-e", fileURLToPath(new URL("../index.ts", import.meta.url)),
 		"--config-palette-standalone", "--", "/config-palette",
 	]);

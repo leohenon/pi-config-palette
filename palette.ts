@@ -24,7 +24,7 @@ interface PaletteHost {
 	notifyError(message: string): void;
 }
 
-type Tab = "skills" | "extensions" | "tools";
+type Tab = "skills" | "extensions" | "tools" | "mcp";
 type SkillScope = "user" | "project";
 interface ViewState {
 	input: Input;
@@ -33,14 +33,14 @@ interface ViewState {
 	statusSort?: "on" | "off";
 }
 
-const TABS: Tab[] = ["skills", "extensions", "tools"];
-const TAB_KEYS = ["1", "2", "3"] as const;
-const KINDS = { skills: "skill", extensions: "extension", tools: "tool" } as const;
-const LABELS = { skills: "Skills", extensions: "Extensions", tools: "Tools" };
+const TABS: Tab[] = ["skills", "extensions", "tools", "mcp"];
+const TAB_KEYS = ["1", "2", "3", "4"] as const;
+const KINDS = { skills: "skill", extensions: "extension", tools: "tool", mcp: "mcp" } as const;
+const LABELS = { skills: "Skills", extensions: "Extensions", tools: "Tools", mcp: "MCP" };
 const SKILL_SCOPES: SkillScope[] = ["user", "project"];
 const SCOPE_LABELS = { user: "Global", project: "Project", temporary: "Temporary" };
 const KEY_HELP = [
-	["1 / 2 / 3", "Skills / Extensions / Tools"],
+	["1 / 2 / 3 / 4", "Skills / Extensions / Tools / MCP"],
 	["h/l  ←/→", "Switch tabs"],
 	["j/k  ↑/↓", "Move / scroll"],
 	["Tab", "Scope / mode"],
@@ -87,6 +87,7 @@ export class ConfigPaletteComponent implements Component, Focusable {
 			showDescription?: boolean;
 			toolsInventory?: "live" | "cached";
 			toolsEmptyMessage?: string;
+			mcpEmptyMessage?: string;
 			showOverrides?: boolean;
 			toolSessionAvailable?: boolean;
 		} = {},
@@ -111,7 +112,7 @@ export class ConfigPaletteComponent implements Component, Focusable {
 			selected: 0,
 			start: 0,
 		});
-		this.views = { skills: view(), extensions: view(), tools: view() };
+		this.views = { skills: view(), extensions: view(), tools: view(), mcp: view() };
 		this.updateFilter();
 	}
 
@@ -139,9 +140,11 @@ export class ConfigPaletteComponent implements Component, Focusable {
 			item.kind === KINDS[this.tab] && (item.kind !== "skill" || item.scope === this.skillScope),
 		);
 		const query = this.view.input.getValue();
-		this.filtered = fuzzyFilter(items, query, (item) =>
-			`${item.name} ${item.description} ${item.source} ${item.kind === "tool" ? item.sourcePath || "" : item.relativePath}`,
-		);
+		this.filtered = fuzzyFilter(items, query, (item) => {
+			const extra = item.kind === "tool" ? item.sourcePath ?? ""
+				: item.kind === "mcp" ? SCOPE_LABELS[item.scope] : item.relativePath;
+			return `${item.name} ${item.description} ${item.source} ${extra}`;
+		});
 		if (this.view.statusSort && !query.trim()) {
 			const preferred = this.view.statusSort === "on";
 			// Search always uses fuzzy relevance; otherwise preserve order within each group.
@@ -205,8 +208,11 @@ export class ConfigPaletteComponent implements Component, Focusable {
 				}
 				item.enabled = this.toolState(item);
 				item.desired = item.enabled;
+			} else if (item.kind === "mcp") {
+				if (updated?.kind === "mcp") Object.assign(item, updated);
+				item.enabled = item.desired;
 			} else {
-				if (updated && updated.kind !== "tool") {
+				if (updated?.kind === "skill" || updated?.kind === "extension") {
 					Object.assign(item, updated);
 					item.projectEnabled = updated.projectEnabled;
 					item.projectOverrideId = updated.projectOverrideId;
@@ -381,6 +387,7 @@ export class ConfigPaletteComponent implements Component, Focusable {
 			skills: this.items.filter((item) => item.kind === "skill").length,
 			extensions: this.items.filter((item) => item.kind === "extension").length,
 			tools: this.items.filter((item) => item.kind === "tool").length,
+			mcp: this.items.filter((item) => item.kind === "mcp").length,
 		};
 		const tabBar = (showCounts: boolean, padding: number) => TABS.map((tab) => {
 			const active = tab === this.tab;
@@ -401,10 +408,12 @@ export class ConfigPaletteComponent implements Component, Focusable {
 		return tabs;
 	}
 
-	private renderOverrideDifference(item: PaletteItem, width: number): string {
-		if (this.options.showOverrides === false) return "";
+	private renderRowHint(item: PaletteItem, width: number): string {
+		if (item.kind !== "mcp" && this.options.showOverrides === false) return "";
 		let hint = "";
-		if (item.kind === "tool" && this.toolSaveMode === "saved" && item.inventory === "live" &&
+		if (item.kind === "mcp") {
+			hint = `  ${SCOPE_LABELS[item.scope]}`;
+		} else if (item.kind === "tool" && this.toolSaveMode === "saved" && item.inventory === "live" &&
 			item.sessionEnabled !== undefined && item.sessionEnabled !== item.desired) {
 			hint = item.sessionEnabled ? "  (on in session)" : "  (off in session)";
 		} else if (item.kind === "skill" && item.scope === "user" &&
@@ -432,6 +441,7 @@ export class ConfigPaletteComponent implements Component, Focusable {
 
 	private renderContextLabel(width: number): string {
 		if (this.tab === "tools") return this.renderToolMode(width);
+		if (this.tab === "mcp") return this.theme.fg("muted", " Applies on reload ");
 		if (this.tab !== "skills") return "";
 		const th = this.theme;
 		const switchable = this.availableScopes.length > 1;
@@ -499,6 +509,11 @@ export class ConfigPaletteComponent implements Component, Focusable {
 						...field("Active in session", selectedItem.sessionEnabled ? "ON" : "OFF"),
 					] : []),
 					...field("Note", "Session overrides win over Global preferences. These control active tool selection, not execution permissions. Other tools may still call or reactivate deferred tools."),
+				] : selectedItem.kind === "mcp" ? [
+					...field("Scope", SCOPE_LABELS[selectedItem.scope] + (selectedItem.isOverride ? " override" : "")),
+					...field("Config file", selectedItem.source),
+					...field("Configured", selectedItem.enabled ? "ON" : "OFF"),
+					...field("Note", "ON means enabled in config, not necessarily connected. Use /mcp for connection status and sign-in."),
 				] : [
 					...field("Scope", SCOPE_LABELS[selectedItem.scope] + (selectedItem.mutable ? "" : " · Read-only")),
 					...(selectedItem.packageName ? field("Package", selectedItem.packageName) : []),
@@ -538,7 +553,8 @@ export class ConfigPaletteComponent implements Component, Focusable {
 			const item = this.filtered[index];
 			if (!item) {
 				const noItems = this.tab === "skills" ? `No ${SCOPE_LABELS[this.skillScope].toLowerCase()} skills`
-					: this.tab === "tools" ? this.options.toolsEmptyMessage || "No tools" : "No extensions";
+					: this.tab === "tools" ? this.options.toolsEmptyMessage || "No tools"
+					: this.tab === "mcp" ? this.options.mcpEmptyMessage || "No configured MCP servers" : "No extensions";
 				const empty = this.view.input.getValue() ? "No matches" : noItems;
 				lines.push(row(!this.filtered.length && offset === Math.floor(pageSize / 2) ? th.fg("muted", empty) : ""));
 				continue;
@@ -548,12 +564,12 @@ export class ConfigPaletteComponent implements Component, Focusable {
 			const badge = th.fg(item.desired ? "success" : "muted", item.desired ? "[ ON]" : "[OFF]");
 			const leading = `${prefix}${badge} `;
 			const availableNameWidth = Math.max(0, contentWidth - visibleWidth(leading));
-			const overrideHint = this.renderOverrideDifference(item, availableNameWidth);
-			const nameWidth = Math.max(0, availableNameWidth - visibleWidth(overrideHint));
+			const hint = this.renderRowHint(item, availableNameWidth);
+			const nameWidth = Math.max(0, availableNameWidth - visibleWidth(hint));
 			const name = th.style(truncateToWidth(singleLine(item.name), nameWidth, "…"), {
 				fg: item.desired ? "text" : "muted", bold: selected,
 			});
-			lines.push(row(leading + name + overrideHint, selected));
+			lines.push(row(leading + name + hint, selected));
 		}
 
 		if (showSearch) {

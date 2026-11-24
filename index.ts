@@ -3,6 +3,7 @@ import { ConfigPaletteComponent, type PaletteResult } from "./palette.ts";
 import { applyResourceChanges, loadResources } from "./resources.ts";
 import type { PaletteItem } from "./items.ts";
 import { SessionTools } from "./session-tools.ts";
+import { loadMcpItems, saveMcpToggle } from "./mcp.ts";
 
 async function openPalette(_args: string, ctx: ExtensionCommandContext, tools: SessionTools, standalone: boolean): Promise<void> {
 	if (ctx.mode !== "tui") {
@@ -30,7 +31,18 @@ async function openPalette(_args: string, ctx: ExtensionCommandContext, tools: S
 		ctx.ui.notify(`Could not load tools: ${error instanceof Error ? error.message : String(error)}`, "error");
 	}
 
-	let resourcesChanged = false;
+	let mcpEmptyMessage: string | undefined;
+	try {
+		items.push(...await loadMcpItems(ctx, (warning) => {
+			mcpEmptyMessage = "No valid MCP servers; check /mcp";
+			ctx.ui.notify(warning, "warning");
+		}));
+	} catch (error) {
+		mcpEmptyMessage = "MCP configuration unavailable; check the reported error";
+		ctx.ui.notify(`Could not load MCP config: ${error instanceof Error ? error.message : String(error)}`, "error");
+	}
+
+	let needsReload = false;
 	const result = await ctx.ui.custom<PaletteResult>(
 		(tui, theme, _keybindings, done) => new ConfigPaletteComponent(
 			items,
@@ -41,9 +53,13 @@ async function openPalette(_args: string, ctx: ExtensionCommandContext, tools: S
 				saveToggle: async (item, mode) => {
 					if (item.kind === "tool") {
 						return tools.save(ctx, item, mode ?? "saved", standalone);
+					} else if (item.kind === "mcp") {
+						const saved = await saveMcpToggle(ctx, item, (warning) => ctx.ui.notify(warning, "warning"));
+						needsReload = true;
+						return saved;
 					} else {
 						await applyResourceChanges(ctx, [item]);
-						resourcesChanged = true;
+						needsReload = true;
 						try {
 							const refreshed = await loadResources(ctx);
 							const fresh = refreshed.find((entry) => entry.id === item.id);
@@ -59,16 +75,14 @@ async function openPalette(_args: string, ctx: ExtensionCommandContext, tools: S
 			done,
 			{
 				showDescription: standalone, showOverrides: !standalone,
-				toolsInventory: standalone ? "cached" : "live", toolsEmptyMessage,
+				toolsInventory: standalone ? "cached" : "live", toolsEmptyMessage, mcpEmptyMessage,
 				toolSessionAvailable: !standalone && ctx.sessionManager.getSessionFile() !== undefined,
 			},
 		),
 		{ overlay: false }, // Use the editor slot, like Pi's /resume picker.
 	);
 
-	// Resource changes need a reload; tool changes are already applied live.
-	// Ctrl+C cannot discard toggles that were saved immediately.
-	if (standalone || !result.savedChanges || !resourcesChanged) return;
+	if (standalone || !result.savedChanges || !needsReload) return;
 	await ctx.waitForIdle();
 
 	try {
@@ -105,7 +119,7 @@ export default function piConfigPalette(pi: ExtensionAPI): void {
 
 	for (const name of ["config-palette", "resources"]) {
 		pi.registerCommand(name, {
-			description: "Toggle skills, extensions and tools",
+			description: "Toggle skills, extensions, tools, and MCP servers",
 			handler: async (args, ctx) => {
 				const standalone = pi.getFlag("config-palette-standalone") === true;
 				try {

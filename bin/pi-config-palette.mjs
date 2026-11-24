@@ -18,7 +18,7 @@ if (!process.stdin.isTTY || !process.stdout.isTTY) {
 
 const extension = fileURLToPath(new URL("../index.ts", import.meta.url));
 const child = spawn("pi", [
-	"--no-session", "--no-extensions", "--offline", "--no-tools",
+	"--no-session", "--no-extensions", "--no-mcp", "--offline", "--no-tools",
 	"-e", extension, "--config-palette-standalone", "--", "/config-palette",
 ], { stdio: "inherit" });
 

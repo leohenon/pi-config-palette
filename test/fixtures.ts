@@ -1,6 +1,6 @@
 import { Theme } from "@earendil-works/pi-coding-agent";
 import type { ResourceItem } from "../resources.ts";
-import type { ToolItem } from "../items.ts";
+import type { McpItem, ToolItem } from "../items.ts";
 
 // Only the tokens used by this component (and required theme fallbacks).
 export const theme = new Theme({
@@ -15,6 +15,13 @@ export function tool(name: string, overrides: Partial<ToolItem> = {}): ToolItem 
 		id: `tool:${name}`, kind: "tool", name, description: `Tool for ${name}`,
 		source: "builtin", exposure: "direct", inventory: "live",
 		enabled: true, desired: true, mutable: true, ...overrides,
+	};
+}
+
+export function mcp(name: string, overrides: Partial<McpItem> = {}): McpItem {
+	return {
+		id: `mcp:${name}`, kind: "mcp", name, description: "", source: "/test/mcp.json",
+		scope: "user", isOverride: false, enabled: true, desired: true, mutable: true, ...overrides,
 	};
 }
 

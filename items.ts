@@ -22,4 +22,17 @@ export interface ToolItem {
 	mutable: boolean;
 }
 
-export type PaletteItem = ResourceItem | ToolItem;
+export interface McpItem {
+	id: string;
+	kind: "mcp";
+	name: string;
+	description: string;
+	source: string;
+	scope: "user" | "project";
+	isOverride: boolean;
+	enabled: boolean;
+	desired: boolean;
+	mutable: true;
+}
+
+export type PaletteItem = ResourceItem | ToolItem | McpItem;

@@ -4,7 +4,7 @@ import { stripVTControlCharacters } from "node:util";
 import { CURSOR_MARKER, visibleWidth } from "@earendil-works/pi-tui";
 import { ConfigPaletteComponent, type PaletteResult } from "../palette.ts";
 import type { PaletteItem, ToolSaveMode } from "../items.ts";
-import { resource, tool, theme } from "./fixtures.ts";
+import { mcp, resource, tool, theme } from "./fixtures.ts";
 
 const ESC = "\x1b";
 const ENTER = "\r";
@@ -83,6 +83,47 @@ test("Tools lists live tool names, searches, sorts, and saves toggles", async ()
 	assert.match(text(), /› \[ ON\] alpha/);
 	await key(ESC, SAVE);
 	assert.equal(results[0].savedChanges, true);
+});
+
+test("MCP wraps from Skills, shows edit scope, and reuses sort, search, details, and autosave", async () => {
+	const { text, key, writes, writeModes, results } = setup([
+		mcp("docs", { enabled: false, desired: false, scope: "project", isOverride: true }),
+		mcp("issues"), tool("other"),
+	]);
+	await key("h");
+	assert.match(text(), /MCP \(2\)/);
+	assert.match(text(), /› \[OFF\] docs  Project/);
+	await key("l");
+	assert.match(text(), /No global skills/);
+	await key("4", "s");
+	assert.match(text(), /› \[ ON\] issues  Global/);
+	await key("/", "p", "r", "o", "j", ESC, TAB);
+	assert.match(text(), /› \[OFF\] docs  Project/);
+	assert.doesNotMatch(text(), /issues|Session/);
+	await key("d");
+	assert.match(text(), /Project override/);
+	assert.match(text(), /\/test\/mcp\.json/);
+	assert.match(text(), /not necessarily connected/);
+	await key(ESC, ENTER);
+	assert.match(text(), /› \[ ON\] docs  Project/);
+	await key("3", "4");
+	assert.match(text(), /\/ proj/);
+	await key(" ", SAVE);
+	assert.match(text(), /› \[OFF\] docs  Project/);
+	assert.deepEqual(writes.map((item) => [item.kind, item.name, item.desired]), [["mcp", "docs", true], ["mcp", "docs", false]]);
+	assert.deepEqual(writeModes, [undefined, undefined]);
+	assert.equal(results[0].savedChanges, true);
+});
+
+test("failed MCP save restores the row, reports the error, and leaves the palette open", async () => {
+	const { text, key, errors, results } = setup([mcp("docs")], async () => { throw new Error("read-only"); });
+	await key("4", " ");
+	assert.match(text(), /› \[ ON\] docs  Global/);
+	assert.match(text(), /Save failed/);
+	assert.match(errors[0], /Could not save docs: read-only/);
+	assert.equal(results.length, 0);
+	await key(ESC);
+	assert.equal(results[0].savedChanges, false);
 });
 
 test("Tools switches Global/Session without affecting skills or changing preferences", async () => {
@@ -263,7 +304,7 @@ test("help is inline and preserves selection, scope, query, and sort", async () 
 	await key("?");
 	assert.match(text(), /╭ Keys /);
 	assert.match(text(), /Switch tabs/);
-	assert.match(text(), /1 \/ 2 \/ 3\s+Skills \/ Extensions \/ Tools/);
+	assert.match(text(), /1 \/ 2 \/ 3 \/ 4\s+Skills \/ Extensions \/ Tools \/ MCP/);
 	assert.match(text(), /Space\/Enter\s+Toggle · autosaves/);
 	assert.match(text(), /s\s+Sort\s+│/);
 	assert.match(text(), /\?\s+Help\s+│/);
@@ -271,7 +312,7 @@ test("help is inline and preserves selection, scope, query, and sort", async () 
 	assert.match(text(), /Esc\s+Close/);
 	assert.doesNotMatch(text(), /Ctrl\+S|Ctrl\+C|Apply & close|Back \/ clear search \/ close|Search: Esc\/Enter/);
 	assert.doesNotMatch(text(), /› \[|\/ br/);
-	await key(" ", ENTER, TAB, "s", "h", "l", "1", "2", "3", "d", "/", "j", "k");
+	await key(" ", ENTER, TAB, "s", "h", "l", "1", "2", "3", "4", "d", "/", "j", "k");
 	assert.equal(writes.length, 0);
 	assert.equal(results.length, 0);
 	await key(ESC);
@@ -314,7 +355,7 @@ test("help works on Tools and empty lists, including Kitty question-mark encodin
 		assert.match(text(), /╭ Keys /);
 		await key(question);
 		assert.match(text(), /No global skills/);
-		await key("h", question);
+		await key("3", question);
 		assert.match(text(), /╭ Keys /);
 		await key(ESC);
 		assert.match(text(), /No tools/);
@@ -453,7 +494,7 @@ test("s stays text in search and is harmless on empty lists", async () => {
 	const { text, key, writes } = setup();
 	await key("/", "s");
 	assert.match(text(), /\/ s/);
-	await key(ESC, "h");
+	await key(ESC, "3");
 	const tools = text();
 	await key("s");
 	assert.equal(text(), tools);
@@ -476,10 +517,10 @@ test("tabs show muted parenthesized totals for all resource kinds", async () => 
 
 test("active top tab is padded and filled, with no underline", async () => {
 	const { ui, key } = setup();
-	for (const [index, label] of ["Skills", "Extensions", "Tools"].entries()) {
+	for (const [index, label] of ["Skills", "Extensions", "Tools", "MCP"].entries()) {
 		if (index) await key("l");
 		const header = ui.render(96)[1];
-		const count = theme.fg("muted", [" (3)", " (2)", " (0)"][index]);
+		const count = theme.fg("muted", [" (3)", " (2)", " (0)", " (0)"][index]);
 		const active = theme.style(label, { fg: "accent", bold: true });
 		assert.ok(header.includes(theme.bg("selectedBg", `  ${active}${count}  `)));
 		assert.ok(!header.includes("\x1b[4m"));
@@ -489,8 +530,8 @@ test("active top tab is padded and filled, with no underline", async () => {
 
 test("tab bar drops counts before collapsing to the active tab on narrow screens", async () => {
 	const { ui, text, key } = setup();
-	assert.match(text(52).split("\n")[1], /Skills \(3\).*Extensions \(2\).*Tools \(0\)/);
-	assert.match(text(40).split("\n")[1], /Skills\s+Extensions\s+Tools/);
+	assert.match(text(72).split("\n")[1], /Skills \(3\).*Extensions \(2\).*Tools \(0\).*MCP \(0\)/);
+	assert.match(text(40).split("\n")[1], /Skills\s+Extensions\s+Tools\s+MCP/);
 	assert.doesNotMatch(text(40).split("\n")[1], /\(\d+\)/);
 	assert.ok(ui.render(96)[1].includes(theme.style("Tools", { fg: "muted", bold: false })));
 	await key("l");
@@ -744,7 +785,7 @@ test("d remains text during search and does nothing without a selected resource"
 	await key("/", "d");
 	assert.match(text(), /\/ d/);
 	assert.doesNotMatch(text(), /Details/);
-	await key(ESC, "h", "d");
+	await key(ESC, "3", "d");
 	assert.match(text(), /No tools/);
 	assert.doesNotMatch(text(), /Details/);
 	const empty = setup([]);
@@ -898,7 +939,7 @@ test("starts on skills; jk navigates and space saves a toggle", async () => {
 	assert.equal(renders(), 3);
 });
 
-test("1-3 switch directly to Skills, Extensions, and Tools while preserving tab state", async () => {
+test("1-4 switch directly to palette tabs while preserving tab state", async () => {
 	const { text, key, writes, results } = setup();
 	await key("/", "b", "r", ESC, "2", "k");
 	assert.match(text(), /› \[OFF\] pi-web-access/);
@@ -911,6 +952,8 @@ test("1-3 switch directly to Skills, Extensions, and Tools while preserving tab 
 	assert.match(text(), /› \[OFF\] pi-web-access/);
 	await key("h");
 	assert.match(text(), /\/ br/);
+	await key("\x1b[52u");
+	assert.match(text(), /No configured MCP servers/);
 	await key("\x1b[51u");
 	assert.match(text(), /No tools/);
 	await key("\x1b[49u");
@@ -920,10 +963,10 @@ test("1-3 switch directly to Skills, Extensions, and Tools while preserving tab 
 });
 
 test("digits remain literal input while searching", async () => {
-	const { text, key, writes } = setup([resource("skill-123")]);
-	await key("/", "1", "2", "3");
-	assert.match(text(), /\/ 123/);
-	assert.match(text(), /› \[ ON\] skill-123/);
+	const { text, key, writes } = setup([resource("skill-1234")]);
+	await key("/", "1", "2", "3", "4");
+	assert.match(text(), /\/ 1234/);
+	assert.match(text(), /› \[ ON\] skill-1234/);
 	assert.equal(writes.length, 0);
 });
 
@@ -941,7 +984,7 @@ test("hl cycles tabs and preserves selection and saved changes", async () => {
 
 test("empty Tools supports navigation without writing settings", async () => {
 	const { text, key, results } = setup();
-	await key("h");
+	await key("3");
 	assert.match(text(), /No tools/);
 	await key("j", "k", "/", " ", ENTER);
 	assert.equal(results.length, 0);
@@ -1027,7 +1070,7 @@ test("footer hints are absent from navigation, search, and Tools", async () => {
 	await key("/", "b");
 	noHints();
 	assert.match(text(), /› \[ ON\] bravo/);
-	await key(ESC, "h");
+	await key(ESC, "3");
 	noHints();
 	assert.match(text(), /No tools/);
 });

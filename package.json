@@ -6,13 +6,18 @@
     "bin/pi-config-palette.mjs",
     "index.ts",
     "items.ts",
+    "mcp.ts",
     "palette.ts",
     "resources.ts",
     "session-tools.ts",
     "tools.ts"
   ],
   "type": "module",
-  "description": "A keyboard-first palette for Pi skills, extensions, and tools.",
+  "description": "A keyboard-first palette for Pi skills, extensions, tools, and MCP servers.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/leohenon/pi-config-palette.git"
+  },
   "keywords": [
     "pi-package"
   ],
@@ -34,6 +39,8 @@
     "@earendil-works/pi-tui": ">=1.5.2"
   },
   "dependencies": {
+    "@earendil-works/pi-mcp": "1.5.2",
+    "jsonc-parser": "^3.3.1",
     "proper-lockfile": "^4.1.2"
   },
   "devDependencies": {
