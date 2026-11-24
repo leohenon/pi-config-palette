@@ -505,6 +505,15 @@ export class ConfigPaletteComponent implements Component, Focusable {
 		return ` ${visibleWidth(scopes) + 2 <= width ? scopes : scopeOption(this.skillScope)} `;
 	}
 
+	private descriptionFallback(item: PaletteItem): string {
+		const source = singleLine(item.source);
+		if (item.kind === "mcp") return source || "—";
+		// "auto" and "local" describe discovery, not where to find the file.
+		const namedSource = source === "auto" || source === "local" ? "" : source;
+		if (item.kind === "tool") return singleLine(item.sourcePath ?? "") || namedSource || "—";
+		return namedSource || singleLine(item.relativePath) || "—";
+	}
+
 	render(width: number): string[] {
 		if (width < 4) return [truncateToWidth("Config", Math.max(0, width), "")];
 		const th = this.theme;
@@ -653,7 +662,9 @@ export class ConfigPaletteComponent implements Component, Focusable {
 		if (descriptionRows) {
 			lines.push(row(th.fg("borderMuted", "─".repeat(contentWidth))));
 			if (padDescription) lines.push(row());
-			const wrapped = wrapTextWithAnsi(singleLine(selectedItem?.description || ""), Math.max(1, contentWidth));
+			const preview = singleLine(selectedItem?.description ?? "");
+			const wrapped = preview ? wrapTextWithAnsi(preview, Math.max(1, contentWidth))
+				: selectedItem ? [this.descriptionFallback(selectedItem)] : [];
 			const description = wrapped.slice(0, descriptionRows);
 			if (wrapped.length > descriptionRows) {
 				description[descriptionRows - 1] = truncateToWidth(description[descriptionRows - 1], Math.max(0, contentWidth - 1), "") + "…";

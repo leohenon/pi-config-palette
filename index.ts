@@ -80,7 +80,7 @@ async function openPalette(_args: string, ctx: ExtensionCommandContext, tools: S
 			},
 			done,
 			{
-				favorites, showDescription: standalone, showOverrides: !standalone,
+				favorites, showDescription: true, showOverrides: !standalone,
 				toolsInventory: standalone ? "cached" : "live", toolsEmptyMessage, mcpEmptyMessage,
 				toolSessionAvailable: !standalone && ctx.sessionManager.getSessionFile() !== undefined,
 			},

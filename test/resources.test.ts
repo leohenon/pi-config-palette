@@ -586,7 +586,7 @@ test("inline command reloads after Escape waits for an in-flight immediate save"
 				assert.equal(options?.overlay, false);
 				assert.equal(options?.overlayOptions, undefined);
 				const result = await usePicker(factory, [" ", "\x1b"], (lines) => {
-					assert.doesNotMatch(lines.join("\n"), /Help with example/);
+					assert.match(stripVTControlCharacters(lines.join("\n")), /\/ Search[\s\S]*Help with example/);
 				});
 				overlayClosed = true;
 				return result;

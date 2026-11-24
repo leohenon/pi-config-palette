@@ -895,6 +895,43 @@ test("standalone description has a divider and breathing room, wraps, and follow
 	assert.doesNotMatch(text(), /A helpful description/);
 });
 
+test("the description panel falls back to source without moving the layout", async () => {
+	const extension = { kind: "extension", key: "extensions" } as const;
+	const { text, key } = setup([
+		resource("example", { ...extension, id: "described", source: "npm:example" }),
+		resource("example", { ...extension, id: "project", description: " \t", scope: "project", relativePath: "extensions/index.ts" }),
+		resource("example", { ...extension, id: "discovered", description: "", source: "auto", relativePath: "extensions/example.ts" }),
+		resource("example", { ...extension, id: "packaged", description: "", source: "npm:example" }),
+		resource("example", { ...extension, id: "unknown", description: "", source: "", relativePath: "" }),
+	], undefined, { showDescription: true });
+	await key("2");
+	const searchRow = () => text().split("\n").findIndex((line) => /^│ \/ /.test(line));
+	const originalSearchRow = searchRow();
+	const originalHeight = text().split("\n").length;
+	assert.match(text(), /Instructions for example/);
+	assert.doesNotMatch(text(), /npm:example/);
+	for (const preview of ["extensions/index.ts", "extensions/example.ts", "npm:example", "—"]) {
+		await key("k");
+		assert.ok(text().split("\n")[originalSearchRow + 4].startsWith(`│ ${preview} `));
+		assert.equal(searchRow(), originalSearchRow);
+		assert.equal(text().split("\n").length, originalHeight);
+	}
+	await key("/", "z", "z", ENTER);
+	assert.match(text(), /No matches/);
+	assert.doesNotMatch(text(), /^│ —\s+│$/m);
+});
+
+test("description fallbacks use the tool definition and MCP config source", async () => {
+	const { text, key } = setup([
+		tool("lookup", { description: "", source: "local", sourcePath: "/ext/lookup.ts" }),
+		mcp("docs", { scope: "project", source: "/project/.pi/mcp.json" }),
+	], undefined, { showDescription: true });
+	await key("3");
+	assert.match(text(), /^│ \/ext\/lookup\.ts\s+│$/m);
+	await key("4");
+	assert.match(text(), /^│ \/project\/\.pi\/mcp\.json\s+│$/m);
+});
+
 test("standalone descriptions fit small terminals and disappear for empty results", async () => {
 	const { ui, text, key, resize } = setup([
 		resource("日本語", { description: "Wide 🧪 日本語 description ".repeat(50) }),
