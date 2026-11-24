@@ -4,6 +4,7 @@
   "license": "MIT",
   "files": [
     "bin/pi-config-palette.mjs",
+    "favorites.ts",
     "index.ts",
     "items.ts",
     "mcp.ts",

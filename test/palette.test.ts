@@ -18,12 +18,18 @@ const sample = () => [
 
 const initialItems = new WeakMap<PaletteResult, PaletteItem[]>();
 
-function setup(items: PaletteItem[] = sample(), saveToggle: (item: PaletteItem, mode?: ToolSaveMode) => Promise<PaletteItem | void> = async () => {}, options: ConstructorParameters<typeof ConfigPaletteComponent>[4] = {}) {
+function setup(
+	items: PaletteItem[] = sample(),
+	saveToggle: (item: PaletteItem, mode?: ToolSaveMode) => Promise<PaletteItem | void> = async () => {},
+	options: ConstructorParameters<typeof ConfigPaletteComponent>[4] = {},
+	saveFavorite?: (id: string, starred: boolean) => Promise<ReadonlySet<string>>,
+) {
+	const favorites = new Set(options.favorites);
 	const results: PaletteResult[] = [];
 	const writes: PaletteItem[] = [];
 	const writeModes: (ToolSaveMode | undefined)[] = [];
 	const errors: string[] = [];
-	let lastSave: Promise<PaletteItem | void> = Promise.resolve();
+	let lastSave: Promise<unknown> = Promise.resolve();
 	let renders = 0;
 	let rows = 24;
 	const ui = new ConfigPaletteComponent(items, theme, {
@@ -31,8 +37,19 @@ function setup(items: PaletteItem[] = sample(), saveToggle: (item: PaletteItem, 
 		saveToggle: (item, mode) => {
 			writes.push(item);
 			writeModes.push(mode);
-			lastSave = Promise.resolve().then(() => saveToggle(item, mode));
-			return lastSave;
+			const save = Promise.resolve().then(() => saveToggle(item, mode));
+			lastSave = save;
+			return save;
+		},
+		saveFavorite: (id, starred) => {
+			const save = Promise.resolve().then(() => {
+				if (saveFavorite) return saveFavorite(id, starred);
+				if (starred) favorites.add(id);
+				else favorites.delete(id);
+				return new Set(favorites);
+			});
+			lastSave = save;
+			return save;
 		},
 		notifyError: (message) => { errors.push(message); },
 	}, (result) => {
@@ -390,6 +407,7 @@ test("help is inline and preserves selection, scope, query, and sort", async () 
 	assert.match(text(), /Switch tabs/);
 	assert.match(text(), /1 \/ 2 \/ 3 \/ 4\s+Skills \/ Extensions \/ Tools \/ MCP/);
 	assert.match(text(), /Space\/Enter\s+Toggle · autosaves/);
+	assert.match(text(), /f\s+Star \/ unstar/);
 	assert.match(text(), /s\s+Sort\s+│/);
 	assert.match(text(), /\?\s+Help\s+│/);
 	assert.doesNotMatch(text(), /Sort:|ON → OFF → default|Help \/ back/);
@@ -472,6 +490,64 @@ test("Ctrl+S still applies saved changes from help", async () => {
 	await key(ENTER, "?", SAVE);
 	assert.equal(results[0].action, "apply");
 	assert.equal(results[0].savedChanges, true);
+});
+
+test("f pins an item to the bottom of each tab, keeps it selected, and never toggles it", async () => {
+	const off = { enabled: false, desired: false };
+	const extension = { kind: "extension", key: "extensions" } as const;
+	const { text, key, writes, results } = setup([
+		resource("alpha"), resource("bravo", { ...off, mutable: false }),
+		resource("alpha-ext", extension), resource("bravo-ext", { ...extension, ...off }),
+		tool("alpha-tool"), tool("bravo-tool", off),
+		mcp("alpha-server"), mcp("bravo-server", off),
+	], undefined, { toolSessionAvailable: true });
+
+	for (const [tab, suffix] of ["", "-ext", "-tool", "-server"].entries()) {
+		const label = (name: string) => name + suffix + (tab === 3 ? "  Global" : "");
+		const alpha = label("alpha");
+		const bravo = label("bravo");
+		await key(String(tab + 1));
+		assert.deepEqual(listedNames(text()), [bravo, alpha]);
+		await key("k", "f");
+		assert.deepEqual(listedNames(text()), [alpha, `★ ${bravo}`]);
+		assert.ok(text().includes(`› [OFF] ★ ${bravo}`));
+		if (tab === 2) {
+			await key(TAB);
+			assert.ok(text().includes(`› [OFF] ★ ${bravo}`));
+			await key(TAB);
+		}
+		await key("f");
+		assert.deepEqual(listedNames(text()), [bravo, alpha]);
+		assert.ok(text().includes(`› [OFF] ${bravo}`));
+	}
+	await key(ESC);
+	assert.deepEqual(writes, []);
+	assert.equal(results[0].savedChanges, false);
+});
+
+test("favorites do not change explicit status sorting or fuzzy search ranking", async () => {
+	const { text, key } = setup([
+		resource("check"), resource("check-fast", { enabled: false, desired: false }),
+	], undefined, { favorites: new Set(["check-fast"]) });
+	assert.deepEqual(listedNames(text()), ["check", "★ check-fast"]);
+	await key("s");
+	assert.deepEqual(listedNames(text()), ["★ check-fast", "check"]);
+	await key("s", "s", "/", ..."check");
+	assert.deepEqual(listedNames(text()), ["★ check-fast", "check"]);
+	await key("-", "f");
+	assert.match(text(), /\/ check-f/);
+	assert.deepEqual(listedNames(text()), ["★ check-fast"]);
+});
+
+test("a failed favorite save leaves the row unchanged and reports the error", async () => {
+	const { text, key, errors } = setup([resource("alpha"), resource("bravo")], undefined, {}, async () => {
+		throw new Error("read-only");
+	});
+	await key("k", "f");
+	assert.deepEqual(listedNames(text()), ["bravo", "alpha"]);
+	assert.match(text(), /› \[ ON\] bravo/);
+	assert.match(text(), /Save failed/);
+	assert.deepEqual(errors, ["Could not save favorite for bravo: read-only"]);
 });
 
 test("s cycles ON-first, OFF-first, and default order without changing settings", async () => {

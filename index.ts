@@ -4,6 +4,7 @@ import { applyResourceChanges, loadResources } from "./resources.ts";
 import type { PaletteItem } from "./items.ts";
 import { SessionTools } from "./session-tools.ts";
 import { loadMcpItems, saveMcpToggle } from "./mcp.ts";
+import { loadFavorites, saveFavorite } from "./favorites.ts";
 
 async function openPalette(_args: string, ctx: ExtensionCommandContext, tools: SessionTools, standalone: boolean): Promise<void> {
 	if (ctx.mode !== "tui") {
@@ -42,6 +43,10 @@ async function openPalette(_args: string, ctx: ExtensionCommandContext, tools: S
 		ctx.ui.notify(`Could not load MCP config: ${error instanceof Error ? error.message : String(error)}`, "error");
 	}
 
+	const favorites = await loadFavorites().catch((error) => {
+		ctx.ui.notify(`Could not load favorites: ${error instanceof Error ? error.message : String(error)}`, "warning");
+		return new Set<string>();
+	});
 	let needsReload = false;
 	const result = await ctx.ui.custom<PaletteResult>(
 		(tui, theme, _keybindings, done) => new ConfigPaletteComponent(
@@ -70,11 +75,12 @@ async function openPalette(_args: string, ctx: ExtensionCommandContext, tools: S
 						return { ...item, enabled: item.desired, projectEnabled: undefined, projectOverrideId: undefined };
 					}
 				},
+				saveFavorite,
 				notifyError: (message) => ctx.ui.notify(message, "error"),
 			},
 			done,
 			{
-				showDescription: standalone, showOverrides: !standalone,
+				favorites, showDescription: standalone, showOverrides: !standalone,
 				toolsInventory: standalone ? "cached" : "live", toolsEmptyMessage, mcpEmptyMessage,
 				toolSessionAvailable: !standalone && ctx.sessionManager.getSessionFile() !== undefined,
 			},

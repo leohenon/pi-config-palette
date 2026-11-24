@@ -9,7 +9,7 @@ import {
 	type Component,
 	type Focusable,
 } from "@earendil-works/pi-tui";
-import { toolExtensionName, type PaletteItem, type ToolItem, type ToolSaveMode } from "./items.ts";
+import { favoriteKey, toolExtensionName, type PaletteItem, type ToolItem, type ToolSaveMode } from "./items.ts";
 
 export interface PaletteResult {
 	action: "apply" | "cancel";
@@ -21,6 +21,7 @@ interface PaletteHost {
 	requestRender(): void;
 	rows(): number;
 	saveToggle(item: PaletteItem, mode?: ToolSaveMode): Promise<PaletteItem | void>;
+	saveFavorite(key: string, starred: boolean): Promise<ReadonlySet<string>>;
 	notifyError(message: string): void;
 }
 
@@ -46,6 +47,7 @@ const KEY_HELP = [
 	["Tab", "Scope / mode"],
 	["/", "Search"],
 	["Space/Enter", "Toggle · autosaves"],
+	["f", "Star / unstar"],
 	["s", "Sort"],
 	["d", "Details"],
 	["Esc", "Close"],
@@ -68,6 +70,7 @@ export class ConfigPaletteComponent implements Component, Focusable {
 	private toolSaveMode: ToolSaveMode = "saved";
 	private mode: "normal" | "search" = "normal";
 	private filtered: PaletteItem[] = [];
+	private favorites: ReadonlySet<string>;
 	private hasFocus = false;
 	private closed = false;
 	private detailsOpen = false;
@@ -85,6 +88,7 @@ export class ConfigPaletteComponent implements Component, Focusable {
 		private readonly host: PaletteHost,
 		private readonly done: (result: PaletteResult) => void,
 		private readonly options: {
+			favorites?: ReadonlySet<string>;
 			showDescription?: boolean;
 			toolsInventory?: "live" | "cached";
 			toolsEmptyMessage?: string;
@@ -93,6 +97,7 @@ export class ConfigPaletteComponent implements Component, Focusable {
 			toolSessionAvailable?: boolean;
 		} = {},
 	) {
+		this.favorites = options.favorites ?? new Set();
 		for (const item of items) {
 			if (item.kind === "extension") this.extensionNames.set(item.path, item.name);
 		}
@@ -139,6 +144,10 @@ export class ConfigPaletteComponent implements Component, Focusable {
 		}
 	}
 
+	private isFavorite(item: PaletteItem): boolean {
+		return this.favorites.has(favoriteKey(item));
+	}
+
 	private updateFilter(reset = false, selectedId?: string): void {
 		const items = this.items.filter((item) =>
 			item.kind === KINDS[this.tab] && (item.kind !== "skill" || item.scope === this.skillScope),
@@ -149,10 +158,14 @@ export class ConfigPaletteComponent implements Component, Focusable {
 				: item.kind === "mcp" ? SCOPE_LABELS[item.scope] : item.relativePath;
 			return `${item.name} ${item.description} ${item.source} ${extra}`;
 		});
-		if (this.view.statusSort && !query.trim()) {
-			const preferred = this.view.statusSort === "on";
-			// Search always uses fuzzy relevance; otherwise preserve order within each group.
-			this.filtered.sort((a, b) => Number(b.desired === preferred) - Number(a.desired === preferred));
+		// Search always uses fuzzy relevance; otherwise preserve order within each group.
+		if (!query.trim()) {
+			if (this.view.statusSort) {
+				const preferred = this.view.statusSort === "on";
+				this.filtered.sort((a, b) => Number(b.desired === preferred) - Number(a.desired === preferred));
+			} else if (this.favorites.size) {
+				this.filtered.sort((a, b) => Number(this.isFavorite(b)) - Number(this.isFavorite(a)));
+			}
 		}
 		if (reset) {
 			this.view.selected = 0;
@@ -239,14 +252,33 @@ export class ConfigPaletteComponent implements Component, Focusable {
 			this.saveError = true;
 			this.host.notifyError(`Could not save ${item.name}: ${error instanceof Error ? error.message : String(error)}`);
 		} finally {
-			this.saving = false;
 			if (this.view.statusSort || this.view.input.getValue()) this.updateFilter(false, this.filtered[this.view.selected]?.id);
-			this.redraw();
-			const action = this.closeAfterSave;
-			this.closeAfterSave = undefined;
-			// A failed save stays open so the user sees the error and can retry.
-			if (action && !this.saveError) this.finish(action);
+			this.finishSave();
 		}
+	}
+
+	private async toggleFavorite(item: PaletteItem): Promise<void> {
+		this.saving = true;
+		this.saveError = false;
+		try {
+			const key = favoriteKey(item);
+			this.favorites = await this.host.saveFavorite(key, !this.favorites.has(key));
+			this.updateFilter(false, item.id);
+		} catch (error) {
+			this.saveError = true;
+			this.host.notifyError(`Could not save favorite for ${item.name}: ${error instanceof Error ? error.message : String(error)}`);
+		} finally {
+			this.finishSave();
+		}
+	}
+
+	private finishSave(): void {
+		this.saving = false;
+		this.redraw();
+		const action = this.closeAfterSave;
+		this.closeAfterSave = undefined;
+		// A failed save stays open so the user sees the error and can retry.
+		if (action && !this.saveError) this.finish(action);
 	}
 
 	private toolState(item: ToolItem): boolean {
@@ -354,6 +386,10 @@ export class ConfigPaletteComponent implements Component, Focusable {
 		} else if (matchesKey(data, "d") && this.filtered[this.view.selected]) {
 			this.detailsOpen = true;
 			this.detailScroll = 0;
+		} else if (matchesKey(data, "f")) {
+			const item = this.filtered[this.view.selected];
+			if (item) void this.toggleFavorite(item);
+			return;
 		} else if (matchesKey(data, "space") || matchesKey(data, "return")) {
 			const item = this.filtered[this.view.selected];
 			if (item) void this.toggle(item);
@@ -559,7 +595,7 @@ export class ConfigPaletteComponent implements Component, Focusable {
 		if (this.tab === "tools" && width >= 48) {
 			for (const item of this.filtered) {
 				if (item.kind !== "tool" || !toolExtensionName(item, this.extensionNames)) continue;
-				const cells = visibleWidth(singleLine(item.name));
+				const cells = visibleWidth(singleLine(item.name)) + (this.isFavorite(item) ? visibleWidth("★ ") : 0);
 				// Don't let one long name squeeze every tag.
 				if (cells + 16 <= availableNameWidth) toolNameColumn = Math.max(toolNameColumn, cells);
 			}
@@ -581,17 +617,19 @@ export class ConfigPaletteComponent implements Component, Focusable {
 			const prefix = selected ? th.fg("accent", "› ") : "  ";
 			const badge = th.fg(item.desired ? "success" : "muted", item.desired ? "[ ON]" : "[OFF]");
 			const leading = `${prefix}${badge} `;
-			const hint = this.renderRowHint(item, availableNameWidth);
-			const nameWidth = Math.max(0, availableNameWidth - visibleWidth(hint));
-			const name = th.style(truncateToWidth(singleLine(item.name), nameWidth, "…"), {
+			const star = this.isFavorite(item) ? th.fg("accent", "★ ") : "";
+			const starWidth = visibleWidth(star);
+			const hint = this.renderRowHint(item, availableNameWidth - starWidth);
+			const labelWidth = availableNameWidth - visibleWidth(hint);
+			const label = star + th.style(truncateToWidth(singleLine(item.name), Math.max(0, labelWidth - starWidth), "…"), {
 				fg: item.desired ? "text" : "muted", bold: selected,
 			});
 			const extension = toolNameColumn > 0 && item.kind === "tool" ? singleLine(toolExtensionName(item, this.extensionNames) ?? "") : "";
-			const padding = toolNameColumn - visibleWidth(name);
-			const room = nameWidth - toolNameColumn - 4;
+			const padding = toolNameColumn - visibleWidth(label);
+			const room = labelWidth - toolNameColumn - 4;
 			const attribution = extension && padding >= 0 && room >= Math.min(4, visibleWidth(extension))
 				? " ".repeat(padding + 2) + th.fg("dim", `[${truncateToWidth(extension, room, "…")}]`) : "";
-			lines.push(row(leading + name + attribution + hint, selected));
+			lines.push(row(leading + label + attribution + hint, selected));
 		}
 
 		if (showSearch) {

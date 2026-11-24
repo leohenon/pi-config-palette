@@ -544,6 +544,7 @@ test("skill and extension toggles write real settings before the palette closes"
 			saving = applyResourceChanges(f.ctx, [item]);
 			return saving;
 		},
+		saveFavorite: async () => assert.fail("unexpected favorite save"),
 		notifyError: (message) => { errors.push(message); },
 	}, (result) => results.push(result));
 	for (const expected of [false, true, false]) {
@@ -596,6 +597,39 @@ test("inline command reloads after Escape waits for an in-flight immediate save"
 	await handler("", ctx);
 	assert.equal(reloads, 1);
 	assert.deepEqual(errors, []);
+});
+
+test("favorites persist between embedded and standalone palettes without a reload", { timeout: 5000 }, async (t) => {
+	const f = fixture(t);
+	const file = path.join(f.agentDir, "mcp.json");
+	const server = { command: "docs" };
+	write(file, { mcpServers: { docs: server } });
+
+	const run = (standalone: boolean, expectedStar: boolean, keys: string[]) => paletteCommand(standalone)("", {
+		...f.ctx, mode: "tui",
+		waitForIdle: () => assert.fail("starring must not wait for reload"),
+		reload: () => assert.fail("starring must not reload"),
+		shutdown() {},
+		ui: {
+			notify: (message: string) => assert.fail(message),
+			setFooter() {},
+			custom: async (factory: Factory) => {
+				const { component, closed } = await openPicker(factory);
+				component.handleInput!("4");
+				const screen = stripVTControlCharacters(component.render(96).join("\n"));
+				assert.match(screen, expectedStar ? /\[ ON\] ★ docs/ : /\[ ON\] docs/);
+				for (const key of keys) component.handleInput!(key);
+				return closed;
+			},
+		},
+	} as unknown as ExtensionCommandContext);
+
+	await run(false, false, ["f", "\x1b"]);
+	assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")).mcpServers.docs, server);
+	// An MCP definition edit changes the row ID but must not lose its star.
+	write(file, { mcpServers: { docs: { ...server, description: "Updated" } } });
+	await run(true, true, ["f", "\x1b"]);
+	await run(false, false, ["\x1b"]);
 });
 
 test("multiple MCP edits autosave, then reload once in Pi or just exit in the shell", { timeout: 5000 }, async (t) => {

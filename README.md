@@ -23,6 +23,7 @@ Then `/reload` in Pi and run `/config-palette` (or `/resources`) because two nam
 | `j` / `k` or arrows   | Move                                         |
 | `Tab`                 | Switch scope                                 |
 | `Space` / `Enter`     | Toggle                                       |
+| `f`                   | Star / unstar                                |
 | `/`                   | Fuzzy search                                 |
 | `s`                   | Cycle ON-first / OFF-first / default sorting |
 | `d`                   | Details                                      |
