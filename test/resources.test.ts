@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { test, type TestContext } from "node:test";
 import { stripVTControlCharacters } from "node:util";
-import { SessionManager, SettingsManager, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext, type ToolInfo } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, SessionManager, SettingsManager, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext, type ToolInfo } from "@earendil-works/pi-coding-agent";
 import registerPalette from "../index.ts";
 import { ConfigPaletteComponent, type PaletteResult } from "../palette.ts";
 import { theme } from "./fixtures.ts";
@@ -166,6 +166,41 @@ test("single package src/index uses its identity; local auto directory index use
 	assert.equal(byPath(items, main).name, "@example/pi-tools");
 	assert.equal(byPath(items, local).name, "local-helper");
 	assert.equal(byPath(items, single).name, "check-status");
+});
+
+test("live and shell Tools rows use the real package extension's display name", async (t) => {
+	const f = fixture(t);
+	const pkg = path.join(f.root, "checkout");
+	write(path.join(pkg, "package.json"), { name: "@test/reports", pi: { extensions: ["src/index.ts"] } });
+	write(path.join(pkg, "src/index.ts"), `export default pi => pi.registerTool({
+		name: "preview_report", label: "Preview", description: "Preview a report", parameters: { type: "object", properties: {} },
+		execute: async () => ({ content: [] })
+	});`);
+	write(f.globalFile, { packages: [pkg] });
+	const { session } = await createAgentSession({ cwd: f.cwd, agentDir: f.agentDir, sessionManager: SessionManager.inMemory(f.cwd) });
+	t.after(() => session.dispose());
+	await session.bindExtensions({});
+	const host: ToolHost = {
+		getAllTools: () => session.getAllTools(), getActiveTools: () => session.getActiveToolNames(),
+		setActiveTools: () => assert.fail("displaying the extension must not change tool state"),
+	};
+	for (const standalone of [false, true]) {
+		const ctx = {
+			...f.ctx, mode: "tui", shutdown() {},
+			ui: {
+				setFooter() {}, notify: (message: string) => assert.fail(message),
+				custom: async (factory: Factory) => {
+					const { component, closed } = await openPicker(factory);
+					for (const key of ["3", "/", ..."@test/reports", "\r"]) component.handleInput!(key);
+					assert.match(stripVTControlCharacters(component.render(96).join("\n")), /preview_report +\[@test\/reports\]/);
+					component.handleInput!("\x1b");
+					component.handleInput!("\x1b");
+					return closed;
+				},
+			},
+		} as unknown as ExtensionCommandContext;
+		await paletteCommand(standalone, standalone ? undefined : host)("", ctx);
+	}
 });
 
 test("colliding generic package entrypoints get distinct labels", async (t) => {

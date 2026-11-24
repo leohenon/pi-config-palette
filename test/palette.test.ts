@@ -126,6 +126,90 @@ test("failed MCP save restores the row, reports the error, and leaves the palett
 	assert.equal(results[0].savedChanges, false);
 });
 
+test("Tools shows and searches the registering extension, without changing tool identity", async () => {
+	const owner = (name: string, dir: string) => resource(name, { kind: "extension", key: "extensions", path: `/${dir}/index.ts` });
+	const { text, key, writes, writeModes } = setup([
+		owner("Workbench / Reports", "a"), owner("Workbench / Dashboard", "b"),
+		tool("read", { source: "npm:workbench", sourcePath: "/a/index.ts" }),
+		tool("lookup", { source: "npm:workbench", sourcePath: "/b/index.ts", sessionEnabled: false }),
+		tool("bash", { sourcePath: "builtin:bash" }), tool("custom", { source: "sdk", sourcePath: "<sdk:custom>" }),
+	], undefined, { toolSessionAvailable: true });
+	await key("3");
+	assert.match(text(), /read +\[Workbench \/ Reports\]/);
+	assert.match(text(), /lookup +\[Workbench \/ Dashboard\]  \(off in session\)/);
+	assert.doesNotMatch(text(), /(?:bash|custom) +\[/);
+	await key("/", ..."dashboard", ESC);
+	assert.deepEqual(listedNames(text()), ["lookup  [Workbench / Dashboard]  (off in session)"]);
+	await key("d");
+	assert.match(text(), /Extension\s+│\n│ Workbench \/ Dashboard/);
+	assert.match(text(), /\/b\/index\.ts/);
+	await key(ESC, TAB, ENTER);
+	assert.match(text(), /› \[ ON\] lookup +\[Workbench \/ Dashboard\]/);
+	assert.equal(writes[0].id, "tool:lookup");
+	assert.equal(writeModes[0], "session");
+});
+
+test("Tools attributes runtime-only extensions but doesn't invent missing owners", async () => {
+	const { text, key } = setup([
+		tool("scratch", { source: "local", sourcePath: "/tmp/my-helper/index.ts" }),
+		tool("utility", { source: "local", sourcePath: "/tmp/my-utility.ts" }),
+		tool("remote", { source: "npm:@org/pkg@1.2.0" }),
+		tool("probe", { source: "inline", sourcePath: "<inline:demo>" }),
+		tool("codemode", { sourcePath: "builtin:codemode" }),
+		tool("mcp__server__ping", { sourcePath: "builtin:mcp" }),
+		tool("unknown", { source: "local" }), tool("read", { sourcePath: "builtin:read" }),
+	]);
+	await key("3");
+	assert.deepEqual(listedNames(text()).map((line) => line.replace(/ +\[/, " [")), ["read", "unknown",
+		"mcp__server__ping [builtin:mcp]", "codemode [builtin:codemode]", "probe [<inline:demo>]",
+		"remote [@org/pkg]", "utility [my-utility]", "scratch [my-helper]"]);
+});
+
+test("refreshing a tool drops stale extension labels and search matches", async () => {
+	const { text, key } = setup([tool("probe", { source: "local", sourcePath: "/tmp/old-owner.ts" })],
+		async () => tool("probe", { source: "local", enabled: false, desired: false }));
+	await key("3", "/", ..."old-owner", ESC);
+	assert.match(text(), /probe +\[old-owner\]/);
+	await key(ENTER);
+	assert.match(text(), /No matches/);
+	await key(ESC);
+	assert.deepEqual(listedNames(text()), ["probe"]);
+});
+
+test("extension brackets align by display width and stay put while scrolling", async () => {
+	const names = ["工具", "a", "find_files", "really_long_name", "x".repeat(100)];
+	const { text, key, resize } = setup(names.map((name) => tool(name, { source: "local", sourcePath: "/ext/helper.ts" })));
+	resize(12);
+	await key("3");
+	const check = () => {
+		const rows = listedNames(text(64)).filter((line) => !line.startsWith("xxx"));
+		assert.ok(rows.length >= 2);
+		for (const line of rows) {
+			assert.ok(line.endsWith("[helper]"));
+			assert.equal(visibleWidth(line.slice(0, line.indexOf("[helper]"))), visibleWidth("really_long_name  "));
+		}
+	};
+	check();
+	await key("k", "k", "k", "k");
+	check();
+	assert.doesNotMatch(text(40), /\[helper\]/);
+});
+
+test("narrow Tools rows preserve the tool name and session hint before the extension label", async () => {
+	const file = "/long/index.ts";
+	const label = "工具".repeat(24);
+	const { ui, text, key, resize } = setup([
+		resource(label, { kind: "extension", path: file }), tool("lookup", { source: "local", sourcePath: file, sessionEnabled: false }),
+	]);
+	await key("3");
+	assert.match(text(50), /lookup +\[工具.*…\]  \(off in session\)/);
+	assert.match(text(36), /lookup  \(off in session\)\s+│/);
+	for (const width of [8, 24, 36, 50, 80]) assert.ok(ui.render(width).every((line) => visibleWidth(line) <= width));
+	resize(50);
+	await key("d");
+	assert.ok(text(36).replace(/[│\s]/g, "").includes(label));
+});
+
 test("Tools switches Global/Session without affecting skills or changing preferences", async () => {
 	const { ui, text, key, writes, writeModes } = setup([
 		resource("skill"), tool("read", { savedEnabled: true, sessionEnabled: false, sessionPreference: false, savedPreference: true }),

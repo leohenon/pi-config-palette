@@ -14,6 +14,7 @@ import * as fs from "node:fs";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { extensionFileName } from "./items.ts";
 
 type ResourceKey = "extensions" | "skills";
 type ResourceContext = Pick<ExtensionCommandContext, "cwd" | "isProjectTrusted">;
@@ -61,11 +62,6 @@ function parseSkillMetadata(filePath: string): { name: string; description: stri
 	} catch {
 		return { name: fallback, description: "" };
 	}
-}
-
-function extensionName(filePath: string): string {
-	const base = path.basename(filePath);
-	return /^index\.(ts|js)$/.test(base) ? path.basename(path.dirname(filePath)) : stripExtension(base);
 }
 
 function packageMetadata(root: string): { name: string; description: string; filtersSupported: boolean } {
@@ -124,7 +120,7 @@ async function resolveInventory(ctx: ResourceContext, agentDir: string, settings
 			pkg = packageMetadata(meta.packageRoot);
 			packages.set(meta.packageRoot, pkg);
 		}
-		let info = kind === "skill" ? parseSkillMetadata(resource.path) : { name: extensionName(resource.path), description: "" };
+		let info = kind === "skill" ? parseSkillMetadata(resource.path) : { name: extensionFileName(resource.path), description: "" };
 		if (kind === "extension" && pkg) {
 			const siblings = resolved.extensions.filter((entry) => entry.metadata.packageRoot === meta.packageRoot);
 			const suffix = siblings.length > 1 ? entrySuffix(relativePath) : "";

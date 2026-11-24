@@ -9,7 +9,7 @@ import {
 	type Component,
 	type Focusable,
 } from "@earendil-works/pi-tui";
-import type { PaletteItem, ToolItem, ToolSaveMode } from "./items.ts";
+import { toolExtensionName, type PaletteItem, type ToolItem, type ToolSaveMode } from "./items.ts";
 
 export interface PaletteResult {
 	action: "apply" | "cancel";
@@ -59,6 +59,7 @@ function singleLine(text: string): string {
 
 export class ConfigPaletteComponent implements Component, Focusable {
 	private readonly items: PaletteItem[];
+	private readonly extensionNames = new Map<string, string>();
 	private readonly views: Record<Tab, ViewState>;
 	private readonly scopeCounts: Record<SkillScope, number>;
 	private readonly availableScopes: SkillScope[];
@@ -92,6 +93,9 @@ export class ConfigPaletteComponent implements Component, Focusable {
 			toolSessionAvailable?: boolean;
 		} = {},
 	) {
+		for (const item of items) {
+			if (item.kind === "extension") this.extensionNames.set(item.path, item.name);
+		}
 		// Keep the caller's discovery snapshot separate from live saved state.
 		this.items = items.map((item) => item.kind === "tool" ? {
 			...item,
@@ -141,7 +145,7 @@ export class ConfigPaletteComponent implements Component, Focusable {
 		);
 		const query = this.view.input.getValue();
 		this.filtered = fuzzyFilter(items, query, (item) => {
-			const extra = item.kind === "tool" ? item.sourcePath ?? ""
+			const extra = item.kind === "tool" ? `${item.sourcePath ?? ""} ${toolExtensionName(item, this.extensionNames) ?? ""}`
 				: item.kind === "mcp" ? SCOPE_LABELS[item.scope] : item.relativePath;
 			return `${item.name} ${item.description} ${item.source} ${extra}`;
 		});
@@ -196,6 +200,7 @@ export class ConfigPaletteComponent implements Component, Focusable {
 			if (item.kind === "tool") {
 				if (updated?.kind === "tool") {
 					Object.assign(item, updated);
+					item.sourcePath = updated.sourcePath;
 					item.savedPreference = updated.savedPreference;
 					item.sessionPreference = updated.sessionPreference;
 				} else if (this.toolSaveMode === "session") {
@@ -235,7 +240,7 @@ export class ConfigPaletteComponent implements Component, Focusable {
 			this.host.notifyError(`Could not save ${item.name}: ${error instanceof Error ? error.message : String(error)}`);
 		} finally {
 			this.saving = false;
-			if (this.view.statusSort) this.updateFilter(false, this.filtered[this.view.selected]?.id);
+			if (this.view.statusSort || this.view.input.getValue()) this.updateFilter(false, this.filtered[this.view.selected]?.id);
 			this.redraw();
 			const action = this.closeAfterSave;
 			this.closeAfterSave = undefined;
@@ -493,12 +498,14 @@ export class ConfigPaletteComponent implements Component, Focusable {
 
 		const selectedItem = this.filtered[this.view.selected];
 		if (this.detailsOpen && selectedItem) {
+			const extension = selectedItem.kind === "tool" ? toolExtensionName(selectedItem, this.extensionNames) : undefined;
 			const wrap = (text: string) => wrapTextWithAnsi(singleLine(text), Math.max(1, contentWidth));
 			const field = (label: string, value: string) => [th.fg("dim", label), ...wrap(value).map((s) => th.fg("muted", s)), ""];
 			const body = [
 				...wrap(selectedItem.name).map((s) => th.bold(s)), "",
 				...field("Description", selectedItem.description || "—"),
 				...(selectedItem.kind === "tool" ? [
+					...(extension ? field("Extension", extension) : []),
 					...field("Source", selectedItem.source),
 					...(selectedItem.sourcePath ? field("Definition", selectedItem.sourcePath) : []),
 					...field("Exposure", selectedItem.exposure + (selectedItem.mutable ? "" : " · Read-only")),
@@ -547,6 +554,17 @@ export class ConfigPaletteComponent implements Component, Focusable {
 
 		if (showSpacer) lines.push(row());
 
+		const availableNameWidth = Math.max(0, contentWidth - visibleWidth("› [OFF] "));
+		let toolNameColumn = 0;
+		if (this.tab === "tools" && width >= 48) {
+			for (const item of this.filtered) {
+				if (item.kind !== "tool" || !toolExtensionName(item, this.extensionNames)) continue;
+				const cells = visibleWidth(singleLine(item.name));
+				// Don't let one long name squeeze every tag.
+				if (cells + 16 <= availableNameWidth) toolNameColumn = Math.max(toolNameColumn, cells);
+			}
+		}
+
 		// Draw the first/best result at the bottom, nearest search.
 		for (let offset = 0; offset < pageSize; offset++) {
 			const index = view.start + pageSize - 1 - offset;
@@ -563,13 +581,17 @@ export class ConfigPaletteComponent implements Component, Focusable {
 			const prefix = selected ? th.fg("accent", "› ") : "  ";
 			const badge = th.fg(item.desired ? "success" : "muted", item.desired ? "[ ON]" : "[OFF]");
 			const leading = `${prefix}${badge} `;
-			const availableNameWidth = Math.max(0, contentWidth - visibleWidth(leading));
 			const hint = this.renderRowHint(item, availableNameWidth);
 			const nameWidth = Math.max(0, availableNameWidth - visibleWidth(hint));
 			const name = th.style(truncateToWidth(singleLine(item.name), nameWidth, "…"), {
 				fg: item.desired ? "text" : "muted", bold: selected,
 			});
-			lines.push(row(leading + name + hint, selected));
+			const extension = toolNameColumn > 0 && item.kind === "tool" ? singleLine(toolExtensionName(item, this.extensionNames) ?? "") : "";
+			const padding = toolNameColumn - visibleWidth(name);
+			const room = nameWidth - toolNameColumn - 4;
+			const attribution = extension && padding >= 0 && room >= Math.min(4, visibleWidth(extension))
+				? " ".repeat(padding + 2) + th.fg("dim", `[${truncateToWidth(extension, room, "…")}]`) : "";
+			lines.push(row(leading + name + attribution + hint, selected));
 		}
 
 		if (showSearch) {
