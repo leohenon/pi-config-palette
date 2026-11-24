@@ -44,6 +44,7 @@ const KEY_HELP = [
 	["1 / 2 / 3 / 4", "Skills / Extensions / Tools / MCP"],
 	["h/l  ←/→", "Switch tabs"],
 	["j/k  ↑/↓", "Move / scroll"],
+	["g / G", "Jump to top / bottom"],
 	["Tab", "Scope / mode"],
 	["/", "Search"],
 	["Space/Enter", "Toggle · autosaves"],
@@ -377,6 +378,11 @@ export class ConfigPaletteComponent implements Component, Focusable {
 			this.view.selected = Math.max(0, this.view.selected - 1);
 		} else if (matchesKey(data, "k") || matchesKey(data, "up")) {
 			this.view.selected = Math.min(Math.max(0, this.filtered.length - 1), this.view.selected + 1);
+		} else if (matchesKey(data, "g")) {
+			// Lists are drawn in reverse: index zero is at the bottom.
+			this.view.selected = Math.max(0, this.filtered.length - 1);
+		} else if (matchesKey(data, "shift+g")) {
+			this.view.selected = 0;
 		} else if (matchesKey(data, "s")) {
 			this.view.statusSort = this.view.statusSort === "on" ? "off"
 				: this.view.statusSort === "off" ? undefined : "on";

@@ -492,6 +492,33 @@ test("Ctrl+S still applies saved changes from help", async () => {
 	assert.equal(results[0].savedChanges, true);
 });
 
+test("g and G jump to the visible top and bottom of a scrolling list", async () => {
+	const items = Array.from({ length: 20 }, (_, i) => resource(`row-${i}`));
+	const { text, key, resize } = setup(items, undefined, { favorites: new Set(["row-19"]) });
+	resize(12);
+	await key("k", "g");
+	assert.match(text(), /› \[ ON\] row-18/);
+	assert.equal(listedNames(text()).at(0), "row-18");
+	await key("G");
+	assert.match(text(), /› \[ ON\] ★ row-19/);
+	assert.equal(listedNames(text()).at(-1), "★ row-19");
+	await key("g", "\x1b[103;2u");
+	assert.match(text(), /› \[ ON\] ★ row-19/);
+});
+
+test("g and G stay text while editing and jump within the resulting filter", async () => {
+	const { text, key } = setup([resource("alpha"), resource("gg"), resource("gg-extra"), resource("beta")]);
+	await key("/", "g", "G");
+	assert.match(text(), /\/ gG/);
+	assert.deepEqual(listedNames(text()), ["gg-extra", "gg"]);
+	await key(ENTER, "g");
+	assert.match(text(), /› \[ ON\] gg-extra/);
+	await key("G");
+	assert.match(text(), /› \[ ON\] gg\s+│/);
+	await key("3", "g", "G");
+	assert.match(text(), /No tools/);
+});
+
 test("f pins an item to the bottom of each tab, keeps it selected, and never toggles it", async () => {
 	const off = { enabled: false, desired: false };
 	const extension = { kind: "extension", key: "extensions" } as const;

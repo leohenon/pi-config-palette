@@ -21,6 +21,7 @@ Then `/reload` in Pi and run `/config-palette` (or `/resources`) because two nam
 | `1` / `2` / `3` / `4` | Skills / Extensions / Tools / MCP            |
 | `h` / `l`             | Switch tabs                                  |
 | `j` / `k` or arrows   | Move                                         |
+| `g` / `G`             | Jump to top / bottom                         |
 | `Tab`                 | Switch scope                                 |
 | `Space` / `Enter`     | Toggle                                       |
 | `f`                   | Star / unstar                                |
