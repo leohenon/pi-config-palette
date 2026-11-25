@@ -1,6 +1,6 @@
 {
   "name": "pi-config-palette",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "license": "MIT",
   "files": [
     "bin/pi-config-palette.mjs",

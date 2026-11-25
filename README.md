@@ -52,4 +52,4 @@ Run from your project. Needs `pi` on PATH.
 
 Tools are **cached, Global-only**. Refresh via `/config-palette` inside Pi in the same folder and trust state. Enabling a tool won’t enable its extension.
 
-After changing skills, extensions, or MCP servers from the shell, run `/reload`.
+After making changes from the shell, run `/reload`.
