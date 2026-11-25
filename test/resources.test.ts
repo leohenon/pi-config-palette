@@ -98,7 +98,7 @@ function paletteCommand(standalone = false, tools?: ToolHost, events?: Map<strin
 			if (name === "config-palette") handler = command.handler;
 		},
 	} as unknown as ExtensionAPI);
-	assert.deepEqual(commands, ["config-palette", "resources"]);
+	assert.deepEqual(commands, ["config-palette"]);
 	assert.ok(handler);
 	return handler;
 }

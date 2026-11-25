@@ -123,17 +123,15 @@ export default function piConfigPalette(pi: ExtensionAPI): void {
 	pi.on("session_tree", (_event, ctx) => syncTools(ctx, true, "tree"));
 	pi.on("before_agent_start", (_event, ctx) => syncTools(ctx, false, "turn"));
 
-	for (const name of ["config-palette", "resources"]) {
-		pi.registerCommand(name, {
-			description: "Toggle skills, extensions, tools, and MCP servers",
-			handler: async (args, ctx) => {
-				const standalone = pi.getFlag("config-palette-standalone") === true;
-				try {
-					await openPalette(args, ctx, tools, standalone);
-				} finally {
-					if (standalone) ctx.shutdown();
-				}
-			},
-		});
-	}
+	pi.registerCommand("config-palette", {
+		description: "Toggle skills, extensions, tools, and MCP servers",
+		handler: async (args, ctx) => {
+			const standalone = pi.getFlag("config-palette-standalone") === true;
+			try {
+				await openPalette(args, ctx, tools, standalone);
+			} finally {
+				if (standalone) ctx.shutdown();
+			}
+		},
+	});
 }

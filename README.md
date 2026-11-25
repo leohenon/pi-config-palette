@@ -1,8 +1,10 @@
 # pi-config-palette
 
-Yet another config palette for Pi.
+Think `pi config`, but with more switches and without leaving your session.
 
-Toggle skills, extensions, tools, and native MCP servers in one place. Skills and extensions use their existing global/project scope; tools get Global and Session modes.
+Toggle skills, extensions, tools, and native MCP servers in one place.
+
+Skills and extensions use their existing global/project scope and tools get global/session modes.
 
 ## Install
 
@@ -12,7 +14,7 @@ Requires Pi `1.5.2+`.
 pi install npm:pi-config-palette
 ```
 
-Then `/reload` in Pi and run `/config-palette` (or `/resources`) because two names is important.
+Then `/reload` in Pi and run `/config-palette`.
 
 ## Keys
 
@@ -33,7 +35,7 @@ Then `/reload` in Pi and run `/config-palette` (or `/resources`) because two nam
 
 **Toggles save immediately. Esc is not an undo button.**
 
-Skill, extension, and MCP changes reload Pi once when you close the palette. Tool changes need no reload. Session tool choices beat Global ones and survive resume, but don't follow you into new sessions.
+Skill, extension, and MCP changes reload Pi automatically when you close the palette (if pi is idle). Tool changes need no reload. Session tool choices beat Global ones and survive resume, but don't follow you into new sessions.
 
 Tool toggles are preferences, **not security permissions**. Other extensions can change the active tools too.
 
@@ -46,7 +48,7 @@ npm install -g pi-config-palette
 pi-config-palette
 ```
 
-Run from your project. Needs `pi` on PATH. No chat, no model calls.
+Run from your project. Needs `pi` on PATH.
 
 Tools are **cached, Global-only**. Refresh via `/config-palette` inside Pi in the same folder and trust state. Enabling a tool won’t enable its extension.
 
